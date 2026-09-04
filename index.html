@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RL Quant Dashboard | {{SYMBOL}}</title>
+    <style>
+        :root {
+            --bg-main: #020617;
+            --bg-card: #0f172a;
+            --border-color: #1e293b;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-blue: #38bdf8;
+            --accent-warn: #eab308;
+        }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Inter', 'Segoe UI', sans-serif;
+        }
+        body {
+            background-color: var(--bg-main);
+            color: var(--text-main);
+            padding: 20px;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+            flex-shrink: 0;
+        }
+        .header h1 {
+            font-size: 1.4rem;
+            color: var(--accent-blue);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .header-meta {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            background: var(--bg-card);
+            padding: 4px 10px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+        }
+        .status-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .live-clock {
+            font-family: monospace;
+            color: var(--text-muted);
+            font-size: 1.1rem;
+        }
+        .status-badge {
+            background-color: rgba(16, 185, 129, 0.2);
+            color: var(--accent-green);
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            border: 1px solid var(--accent-green);
+            animation: pulse 2s infinite;
+        }
+        .status-badge.error {
+            background-color: rgba(239, 68, 68, 0.2);
+            color: var(--accent-red);
+            border-color: var(--accent-red);
+            animation: none;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+        
+        .bot-toggle-btn {
+            padding: 6px 16px;
+            border-radius: 6px;
+            font-weight: bold;
+            font-size: 0.85rem;
+            cursor: pointer;
+            border: 1px solid;
+            transition: all 0.3s ease;
+            outline: none;
+            letter-spacing: 0.5px;
+        }
+        .bot-toggle-btn.off {
+            background-color: rgba(16, 185, 129, 0.1);
+            color: var(--accent-green);
+            border-color: var(--accent-green);
+        }
+        .bot-toggle-btn.off:hover {
+            background-color: rgba(16, 185, 129, 0.3);
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
+        }
+        .bot-toggle-btn.on {
+            background-color: rgba(239, 68, 68, 0.1);
+            color: var(--accent-red);
+            border-color: var(--accent-red);
+        }
+        .bot-toggle-btn.on:hover {
+            background-color: rgba(239, 68, 68, 0.3);
+            box-shadow: 0 0 10px rgba(239, 68, 68, 0.2);
+        }
+        .bot-toggle-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            background-color: transparent !important;
+            border-color: var(--text-muted) !important;
+            color: var(--text-muted) !important;
+            box-shadow: none !important;
+        }
+
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-shrink: 0;
+        }
+        .card {
+            background-color: var(--bg-card);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        .card h3 {
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+        .card .value {
+            font-size: 1.7rem;
+            font-weight: 700;
+        }
+        .value.profit { color: var(--accent-green); }
+        .value.loss { color: var(--accent-red); }
+        .value.buy { color: var(--accent-green); }
+        .value.sell { color: var(--accent-red); }
+        .value.info { color: var(--accent-blue); }
+        
+        .main-content {
+            display: grid;
+            grid-template-columns: 280px 2fr 1.5fr;
+            gap: 15px;
+            flex: 1;
+            min-height: 0; 
+        }
+        .panel {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .panel-header {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            padding: 15px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            background: rgba(0,0,0,0.2);
+            flex-shrink: 0;
+        }
+        .panel-body {
+            flex: 1;
+            padding: 15px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .ai-brain {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+        }
+        .brain-core {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            border: 4px solid var(--border-color);
+            background: var(--bg-main);
+            margin-top: 10px;
+        }
+        .brain-core.scanning {
+            box-shadow: 0 0 20px rgba(56, 189, 248, 0.2);
+            border-color: var(--accent-blue);
+            color: var(--accent-blue);
+        }
+        .brain-core.holding-buy {
+            box-shadow: 0 0 30px rgba(16, 185, 129, 0.4);
+            border-color: var(--accent-green);
+            color: var(--accent-green);
+        }
+        .brain-core.holding-sell {
+            box-shadow: 0 0 30px rgba(239, 68, 68, 0.4);
+            border-color: var(--accent-red);
+            color: var(--accent-red);
+        }
+        .gemini-container {
+            width: 100%;
+            margin-top: auto;
+            padding-top: 15px;
+            border-top: 1px dashed var(--border-color);
+        }
+        .gemini-bias-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .gemini-bias { font-weight: 800; font-size: 1.1rem; }
+        .bias-bullish { color: var(--accent-green); }
+        .bias-bearish { color: var(--accent-red); }
+        .bias-sideways { color: var(--accent-blue); }
+        
+        .gemini-reasoning {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 10px;
+            background: rgba(0,0,0,0.3);
+            padding: 10px;
+            border-radius: 8px;
+            height: 140px; 
+            overflow-y: auto; 
+        }
+        .gemini-reasoning::-webkit-scrollbar { width: 4px; }
+        .gemini-reasoning::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 4px; }
+
+        .terminal-bg {
+            background-color: #000;
+            font-family: 'Courier New', Courier, monospace;
+            padding: 15px;
+            flex: 1;
+            overflow-y: auto;
+        }
+        .terminal-bg::-webkit-scrollbar { width: 6px; }
+        .terminal-bg::-webkit-scrollbar-track { background: var(--bg-card); }
+        .terminal-bg::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 4px; }
+        
+        .log-entry { margin-bottom: 8px; font-size: 0.85rem; line-height: 1.4; border-bottom: 1px dotted rgba(255,255,255,0.05); padding-bottom: 4px;}
+        .log-time { color: #64748b; margin-right: 8px; }
+        .log-info { color: var(--accent-blue); }
+        .log-buy { color: var(--accent-green); }
+        .log-sell { color: var(--accent-red); }
+        .log-close { color: var(--accent-warn); }
+        .log-error { color: var(--accent-red); font-weight: bold; }
+        
+        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        th, td { padding: 12px 10px; text-align: left; border-bottom: 1px solid var(--border-color); }
+        th { color: var(--text-muted); font-weight: 500; text-transform: uppercase; background: rgba(0,0,0,0.2); position: sticky; top: 0; z-index: 10;}
+        td { color: var(--text-main); }
+        .td-profit { color: var(--accent-green); font-weight: bold; }
+        .td-loss { color: var(--accent-red); font-weight: bold; }
+        .reason-badge {
+            font-size: 0.7rem;
+            background: #1e293b;
+            padding: 4px 8px;
+            border-radius: 4px;
+            border: 1px solid #334155;
+            color: #e2e8f0;
+        }
+        .reason-badge.sl {
+            border-color: var(--accent-red);
+            color: var(--accent-red);
+            background: rgba(239, 68, 68, 0.1);
+        }
+        .reason-badge.tp {
+            border-color: var(--accent-green);
+            color: var(--accent-green);
+            background: rgba(16, 185, 129, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+            {{SYMBOL}} 
+            <span class="header-meta">M5 STANDALONE</span>
+        </h1>
+        <div class="status-container">
+            <div class="live-clock" id="liveClock">00:00:00</div>
+            <div class="status-badge" id="mainStatus">CONNECTING...</div>
+            <button id="botToggleBtn" class="bot-toggle-btn off" disabled>START BOT</button>
+        </div>
+    </div>
+    
+    <div class="grid-container">
+        <div class="card">
+            <h3>Live Equity</h3>
+            <div class="value" id="balanceValue">$-.--</div>
+        </div>
+        <div class="card">
+            <h3>Daily Net Profit</h3>
+            <div class="value" id="profitValue">$-.--</div>
+        </div>
+        <div class="card" style="grid-column: span 2;">
+            <h3>Active Position</h3>
+            <div class="value" id="positionValue">NONE</div>
+        </div>
+    </div>
+    
+    <div class="main-content">
+        <div class="panel">
+            <div class="panel-header">AI Agent Status</div>
+            <div class="panel-body">
+                <div class="ai-brain">
+                    <div class="brain-core scanning" id="brainCore">SCAN</div>
+                    <div style="text-align: center; color: var(--text-muted); font-size: 0.85rem; line-height: 1.5; margin-bottom: 20px;">
+                        <p style="font-weight: bold; color: var(--text-main);">Edge Executor (PPO)</p>
+                        <p id="agentState" style="color: var(--accent-blue);">Observing Market</p>
+                    </div>
+                </div>
+                <div class="gemini-container">
+                    <div class="gemini-bias-row">
+                        <span class="gemini-bias bias-sideways" id="geminiBias">NEUTRAL</span>
+                        <span style="font-size: 0.75rem; color: var(--text-muted);" id="geminiTime">--:--:--</span>
+                    </div>
+                    <div class="gemini-reasoning" id="geminiReasoning">
+                        Awaiting FinBERT Cloud analysis...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">Live Execution Terminal (Zero Latency)</div>
+            <div class="terminal-bg" id="terminal">
+                <div id="logContent"></div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">Recent Closed Trades</div>
+            <div class="panel-body" style="padding: 0;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width: 25%;">Time</th>
+                            <th style="width: 20%;">Action</th>
+                            <th style="width: 25%;">Profit</th>
+                            <th style="width: 30%;">Reason</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tradesBody">
+                        <tr><td colspan="4" style="text-align: center; color: #64748b; padding: 20px;">Waiting for data...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const terminalContainer = document.getElementById('terminal');
+        const logContent = document.getElementById('logContent');
+        const mainStatus = document.getElementById('mainStatus');
+        const liveClock = document.getElementById('liveClock');
+        const brainCore = document.getElementById('brainCore');
+        const agentState = document.getElementById('agentState');
+        const tradesBody = document.getElementById('tradesBody');
+        
+        const botToggleBtn = document.getElementById('botToggleBtn');
+        let botIsRunning = false; 
+        
+        const geminiBias = document.getElementById('geminiBias');
+        const geminiReasoning = document.getElementById('geminiReasoning');
+        const geminiTime = document.getElementById('geminiTime');
+        
+        function updateClock() {
+            liveClock.innerText = new Date().toLocaleTimeString('id-ID', { hour12: false });
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+        
+        let ws = new WebSocket(`ws://${window.location.host}/ws`);
+        
+        ws.onopen = function() {
+            mainStatus.innerText = "CONNECTED";
+            mainStatus.classList.remove('error');
+            botToggleBtn.disabled = false; 
+            addLog('INFO', 'Terhubung ke Quant Server.', new Date().toLocaleTimeString('id-ID', { hour12: false }));
+        };
+        
+        ws.onclose = function() {
+            mainStatus.innerText = "DISCONNECTED";
+            mainStatus.classList.add('error');
+            botToggleBtn.disabled = true; 
+            botToggleBtn.className = "bot-toggle-btn off";
+            botToggleBtn.innerText = "START BOT";
+            botIsRunning = false;
+            
+            brainCore.className = 'brain-core';
+            brainCore.innerText = 'OFFLINE';
+            agentState.innerText = 'Connection Lost';
+            agentState.style.color = '#ef4444';
+            setTimeout(() => { ws = new WebSocket(`ws://${window.location.host}/ws`); }, 2000);
+        };
+
+        botToggleBtn.addEventListener('click', () => {
+            if(ws.readyState === WebSocket.OPEN) {
+                if(!botIsRunning) {
+                    ws.send(JSON.stringify({command: "start_bot"}));
+                    botToggleBtn.className = "bot-toggle-btn on";
+                    botToggleBtn.innerText = "STOP BOT";
+                    botIsRunning = true;
+                    addLog('INFO', 'Sinyal START dikirim. AI mulai beroperasi.', new Date().toLocaleTimeString('id-ID', { hour12: false }));
+                } else {
+                    ws.send(JSON.stringify({command: "stop_bot"}));
+                    botToggleBtn.className = "bot-toggle-btn off";
+                    botToggleBtn.innerText = "START BOT";
+                    botIsRunning = false;
+                    addLog('CLOSE', 'Sinyal STOP dikirim. AI dicegat.', new Date().toLocaleTimeString('id-ID', { hour12: false }));
+                }
+            }
+        });
+        
+        ws.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            
+            if (data.type === 'log') {
+                addLog(data.log_type, data.message, data.time);
+            } 
+            else if (data.type === 'state') {
+                
+                // PERBAIKAN: Cegah angka menjadi "undefined" jika payload tidak lengkap
+                if(data.balance !== undefined) {
+                    document.getElementById('balanceValue').innerText = data.balance;
+                    const profitEl = document.getElementById('profitValue');
+                    profitEl.innerText = data.profit;
+                    profitEl.className = data.profit.includes('+') ? 'value profit' : 'value loss';
+                }
+                
+                if (data.position !== undefined) {
+                    const posEl = document.getElementById('positionValue');
+                    let posDisplay = "NONE";
+                    let extraInfo = "";
+                    
+                    if (data.position.includes('|')) {
+                        const parts = data.position.split('|');
+                        if (parts.length >= 4) {
+                            posDisplay = parts[0].trim();
+                            const entry = parseFloat(parts[1]).toFixed(2);
+                            const sl = parseFloat(parts[2]).toFixed(2);
+                            const tp = parseFloat(parts[3]).toFixed(2);
+                            
+                            extraInfo = `
+                                <div style="font-size: 0.95rem; font-weight: 500; color: #94a3b8; margin-top: 8px; display: flex; gap: 15px;">
+                                    <span>EN: <span style="color: #f8fafc;">${entry}</span></span>
+                                    <span>SL: <span style="color: #ef4444;">${sl}</span></span>
+                                    <span>TP: <span style="color: #10b981;">${tp}</span></span>
+                                </div>
+                            `;
+                        }
+                    } else {
+                        posDisplay = data.position || "NONE";
+                    }
+                    
+                    posEl.innerHTML = `<div style="display: flex; align-items: center; justify-content: space-between; width: 100%;"><div>${posDisplay}</div> <span style="font-size: 0.9rem; color: #38bdf8;">BID: ${parseFloat(data.bid).toFixed(2)}</span></div>${extraInfo}`;
+                    
+                    if(!botIsRunning) {
+                        brainCore.className = 'brain-core';
+                        brainCore.innerText = 'PAUSED';
+                        agentState.innerText = 'System Standby';
+                        agentState.style.color = '#94a3b8';
+                    } else if (posDisplay.includes('BUY')) {
+                        brainCore.className = 'brain-core holding-buy';
+                        brainCore.innerText = 'BUY';
+                        agentState.innerText = 'Managing Long Position';
+                        agentState.style.color = '#10b981';
+                    } else if (posDisplay.includes('SELL')) {
+                        brainCore.className = 'brain-core holding-sell';
+                        brainCore.innerText = 'SELL';
+                        agentState.innerText = 'Managing Short Position';
+                        agentState.style.color = '#ef4444';
+                    } else {
+                        brainCore.className = 'brain-core scanning';
+                        brainCore.innerText = 'SCAN';
+                        agentState.innerText = 'Observing Market Trends';
+                        agentState.style.color = '#38bdf8';
+                    }
+                }
+                
+                if(data.gemini_bias) {
+                    geminiBias.innerText = data.gemini_bias;
+                    geminiBias.className = 'gemini-bias'; 
+                    if(data.gemini_bias === 'POSITIVE') geminiBias.classList.add('bias-bullish');
+                    else if(data.gemini_bias === 'NEGATIVE') geminiBias.classList.add('bias-bearish');
+                    else geminiBias.classList.add('bias-sideways');
+                    
+                    try {
+                        const parsed = JSON.parse(data.gemini_reasoning);
+                        let newsHtml = `<div style="margin-bottom:4px; font-weight:bold; color: var(--accent-blue);">Probabilitas: ${parsed.prob}%</div><ul style="padding-left: 15px; margin-top: 4px;">`;
+                        parsed.headlines.forEach(hl => { newsHtml += `<li style="margin-bottom:6px; color: #cbd5e1;">${hl}</li>`; });
+                        newsHtml += `</ul>`;
+                        geminiReasoning.innerHTML = newsHtml;
+                    } catch(e) {
+                        geminiReasoning.innerText = data.gemini_reasoning;
+                    }
+                    let timeText = data.gemini_time ? data.gemini_time : new Date().toLocaleTimeString('id-ID', { hour12: false });
+                    geminiTime.innerText = `Sync: ${timeText}`;
+                }
+            }
+            else if (data.type === 'trades') {
+                if (data.data.length > 0) {
+                    tradesBody.innerHTML = '';
+                    data.data.forEach(t => {
+                        const isProfit = parseFloat(t.profit) >= 0;
+                        let displayReason = t.reason.replace('SIGNAL_CHANGE/', 'REV-');
+                        
+                        let extraClass = '';
+                        if (displayReason.includes('SL')) {
+                            extraClass = ' sl';
+                        } else if (displayReason.includes('TP')) {
+                            extraClass = ' tp';
+                        }
+                        
+                        const tr = `<tr>
+                            <td>${t.time}</td>
+                            <td style="color:${t.action==='BUY'?'var(--accent-green)':'var(--accent-red)'}; font-weight: bold;">${t.action}</td>
+                            <td class="${isProfit ? 'td-profit' : 'td-loss'}">${isProfit ? '+' : ''}$${parseFloat(t.profit).toFixed(2)}</td>
+                            <td><span class="reason-badge${extraClass}" title="${t.reason}">${displayReason}</span></td>
+                        </tr>`;
+                        tradesBody.insertAdjacentHTML('beforeend', tr);
+                    });
+                }
+            }
+        };
+        
+        function addLog(type, message, timeStr) {
+            let colorClass = 'log-info';
+            if (type === 'BUY') colorClass = 'log-buy';
+            else if (type === 'SELL') colorClass = 'log-sell';
+            else if (type === 'CLOSE') colorClass = 'log-close';
+            else if (type === 'ERROR') colorClass = 'log-error';
+            
+            const logHtml = `
+                <div class="log-entry">
+                    <span class="log-time">[${timeStr}]</span> 
+                    <span class="${colorClass}">${message}</span>
+                </div>
+            `;
+            logContent.insertAdjacentHTML('afterbegin', logHtml);
+        }
+    </script>
+</body>
+</html>
