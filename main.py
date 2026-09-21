@@ -69,7 +69,7 @@ def evaluate_model(model, env_fn, symbol, episodes=1, dataset_dates=None, mode_n
         ep_pnl = []
         
         try:
-            step = env.envs[0].unwrapped.current_step
+            step = env.envs[0].unwrapped.t
             hist_start_dates.append(env.envs[0].unwrapped.dates[step])
         except: pass
         done = False
@@ -89,7 +89,7 @@ def evaluate_model(model, env_fn, symbol, episodes=1, dataset_dates=None, mode_n
             
             if done:
                 try:
-                    step = env.envs[0].unwrapped.current_step
+                    step = env.envs[0].unwrapped.t
                     hist_end_dates.append(env.envs[0].unwrapped.dates[step])
                 except: pass
                 profit = p_val - config.INITIAL_BALANCE
@@ -224,13 +224,14 @@ class TradingCallback(BaseCallback):
             fig.savefig(str(chart_path), dpi=150)
             plt.close(fig)
 
-def make_env_fn(features, prices, spreads, dates, episode_length):
+def make_env_fn(features, prices, spreads, dates, extra, episode_length, timeframe):
     def _init():
         env = GoldTradingEnv(
-            features, prices, spreads, dates=dates,
-            episode_length=episode_length, 
-            random_start=True, 
-            use_margin_call=True
+            features, prices, spreads, dates=dates, extra=extra,
+            episode_length=episode_length,
+            random_start=True,
+            use_margin_call=True,
+            timeframe=timeframe,
         )
         return Monitor(env)
     return _init
@@ -246,18 +247,18 @@ def run_pretrain(args):
     config.DEFAULT_TIMEFRAME = args.timeframe.upper()
     init_eval_db()
     df = load_csv(args.symbol, args.timeframe.upper(), data_dir=args.data_dir)
-    features, prices, spreads, dates, kalman_model, feature_names = build_feature_matrix(df, args.timeframe.upper(), use_kalman=True)
+    features, prices, spreads, dates, kalman_model, feature_names, extra = build_feature_matrix(df, args.timeframe.upper(), use_kalman=True)
     
-    splits = walk_forward_splits(features, prices, spreads, dates, n_splits=4)
+    splits = walk_forward_splits(features, prices, spreads, dates, extra=extra, n_splits=4)
     tag = f"{config.MODEL_PREFIX}_{args.symbol}_{args.timeframe.upper()}"
     model_path = config.MODEL_DIR / f"{tag}.zip"
     vec_path = config.MODEL_DIR / f"{tag}_vecnormalize.pkl"
     model = None
     
-    for i, ((train_f, train_p, train_s, train_d), (test_f, test_p, test_s, test_d)) in enumerate(splits):
+    for i, ((train_f, train_p, train_s, train_d, train_e), (test_f, test_p, test_s, test_d, test_e)) in enumerate(splits):
         print(f"\n[{i+1}/4] Memulai Siklus Pelatihan Walk-Forward...")
         
-        env = DummyVecEnv([make_env_fn(train_f, train_p, train_s, train_d, args.episode_length)])
+        env = DummyVecEnv([make_env_fn(train_f, train_p, train_s, train_d, train_e, args.episode_length, args.timeframe.upper())])
         
         if i == 0:
             if getattr(args, 'resume', False) and model_path.exists() and vec_path.exists():
@@ -295,7 +296,7 @@ def run_pretrain(args):
             }, f)
             
         print(f"[*] Menguji Model pada Unseen Data di Walk-Forward Step {i+1}...")
-        test_env_fn = make_env_fn(test_f, test_p, test_s, test_d, args.episode_length)
+        test_env_fn = make_env_fn(test_f, test_p, test_s, test_d, test_e, args.episode_length, args.timeframe.upper())
         
         eval_episodes = 10 
         profit, trades, win_rate, s_time, e_time, dur, act_trades, avg_prof = evaluate_model(
@@ -327,16 +328,16 @@ def run_backtest(args):
         artifacts = pickle.load(f)
         kalman_model = artifacts["kalman_model"]
         
-    features, prices, spreads, dates, _, _ = build_feature_matrix(df, args.timeframe.upper(), use_kalman=True, kalman_model=kalman_model)
+    features, prices, spreads, dates, _, _, extra = build_feature_matrix(df, args.timeframe.upper(), use_kalman=True, kalman_model=kalman_model)
     
-    splits = walk_forward_splits(features, prices, spreads, dates, n_splits=4)
-    _, (test_f, test_p, test_s, test_d) = splits[-1] 
+    splits = walk_forward_splits(features, prices, spreads, dates, extra=extra, n_splits=4)
+    _, (test_f, test_p, test_s, test_d, test_e) = splits[-1] 
     
     if args.data_split == "test":
-        eval_f, eval_p, eval_s, eval_d = test_f, test_p, test_s, test_d
+        eval_f, eval_p, eval_s, eval_d, eval_e = test_f, test_p, test_s, test_d, test_e
     else:
-        eval_f, eval_p, eval_s, eval_d = features, prices, spreads, dates
-    env_fn = make_env_fn(eval_f, eval_p, eval_s, eval_d, args.episode_length)
+        eval_f, eval_p, eval_s, eval_d, eval_e = features, prices, spreads, dates, extra
+    env_fn = make_env_fn(eval_f, eval_p, eval_s, eval_d, eval_e, args.episode_length, args.timeframe.upper())
     model = PPO.load(model_path)
     
     profit, trades, win_rate, s_time, e_time, dur, act_trades, avg_prof = evaluate_model(model, env_fn, args.symbol, episodes=args.episodes, dataset_dates=eval_d, mode_name="BACKTEST")

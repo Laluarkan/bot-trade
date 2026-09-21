@@ -1,12 +1,3 @@
-Untuk melatih AI dari nol (Data CSV):
-python main.py pretrain --symbol XAUUSDm --timesteps 500000
-
-Untuk menerjunkan AI ke pasar (Senin - Jumat):
-python main.py live --mode demo
-
-Untuk memoles ulang AI dengan data terbaru (Sabtu - Minggu):
-python main.py retrain --mode demo --candles 100000
-
 numpy>=1.24
 pandas>=2.0
 scipy>=1.10
@@ -16,10 +7,3 @@ sb3-contrib>=2.2
 torch>=2.1
 matplotlib>=3.7
 tqdm>=4.66
-
-
-python main.py live --mode demo --timeframe 1M --db db_m1.db --magic 10001
-python dashboard.py --port 8000 --db db_m1.db
-
-python main.py live --mode demo --timeframe 5M --db db_m5.db --magic 10005
-python dashboard.py --port 8001 --db db_m5.db
