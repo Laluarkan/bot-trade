@@ -10,7 +10,12 @@ for _d in (MODEL_DIR, LOG_DIR, RESULTS_DIR, MODEL_DIR / "checkpoints"):
     _d.mkdir(parents=True, exist_ok=True)
 
 DEFAULT_SYMBOL = "XAUUSDm"
-PROXY_SYMBOL = "EURUSDc"
+PROXY_SYMBOL = "EURUSDm"   # PERBAIKAN: sebelumnya "EURUSDc" -- tidak cocok dengan simbol broker
+                            # (yang pakai suffix "m", sama seperti XAUUSDm) maupun nama file yang
+                            # dihasilkan download_data.py (EURUSDm_1M.csv). Akibatnya data_loader.py
+                            # tidak pernah menemukan file proxy-nya dan diam-diam mengisi
+                            # proxy_ret/proxy_vol_sma dengan NOL di semua training sebelumnya --
+                            # fitur korelasi EUR/USD efektif tidak pernah benar-benar dipakai model.
 DEFAULT_TIMEFRAME = "1M"
 TRAIN_SPLIT = 0.7
 
