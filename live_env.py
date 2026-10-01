@@ -64,6 +64,45 @@ def init_db():
         
         c.execute("CREATE TABLE IF NOT EXISTS bot_control (id INTEGER PRIMARY KEY CHECK (id = 1), status TEXT)")
         c.execute("INSERT OR IGNORE INTO bot_control (id, status) VALUES (1, 'PAUSED')")
+
+        # --- STATE UNTUK CIRCUIT BREAKER OTOMATIS ---
+        # Terpisah dari bot_control supaya tidak bentrok dengan tombol
+        # START/STOP manual di dashboard. bot_control = kontrol manusia.
+        # risk_state = kontrol otomatis oleh sistem (daily loss / losing streak).
+        # consecutive_real_sl dihitung KUMULATIF (bukan harus berturut-turut
+        # tanpa jeda) -> SL_BE (exit SL tapi net_profit ~0/positif) dan
+        # SIGNAL_CHANGE dilewati/tidak mereset, hanya TP asli yang mereset ke 0.
+        c.execute('''CREATE TABLE IF NOT EXISTS risk_state (
+                        id INTEGER PRIMARY KEY CHECK (id = 1),
+                        consecutive_real_sl INTEGER DEFAULT 0,
+                        streak_paused_until TEXT,
+                        daily_breaker_date TEXT,
+                        last_update TEXT
+                    )''')
+        c.execute("INSERT OR IGNORE INTO risk_state (id, consecutive_real_sl, streak_paused_until, daily_breaker_date, last_update) VALUES (1, 0, NULL, NULL, '')")
+        conn.commit()
+
+def get_risk_state():
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute("SELECT consecutive_real_sl, streak_paused_until, daily_breaker_date FROM risk_state WHERE id=1")
+        row = c.fetchone()
+        if row is None:
+            return {"consecutive_real_sl": 0, "streak_paused_until": None, "daily_breaker_date": None}
+        return {"consecutive_real_sl": row[0] or 0, "streak_paused_until": row[1], "daily_breaker_date": row[2]}
+
+def update_risk_state(consecutive_real_sl=None, streak_paused_until=None, daily_breaker_date=None):
+    """Update parsial: field yang di-pass None (default) TIDAK diubah, kecuali
+    memang eksplisit ingin di-clear (pakai string kosong untuk streak_paused_until)."""
+    current = get_risk_state()
+    new_sl = current["consecutive_real_sl"] if consecutive_real_sl is None else consecutive_real_sl
+    new_streak_until = current["streak_paused_until"] if streak_paused_until is None else (None if streak_paused_until == "" else streak_paused_until)
+    new_daily_date = current["daily_breaker_date"] if daily_breaker_date is None else (None if daily_breaker_date == "" else daily_breaker_date)
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        c.execute('''UPDATE risk_state SET consecutive_real_sl=?, streak_paused_until=?, daily_breaker_date=?, last_update=? WHERE id=1''',
+                  (new_sl, new_streak_until, new_daily_date, now))
         conn.commit()
 
 def update_current_state(balance, profit, position, bid, ask):
@@ -374,8 +413,64 @@ class LiveMT5Env(gym.Env):
         except Exception:
             bot_status = "PAUSED"
 
-        if bot_status == "PAUSED" or (config.ENABLE_TOXIC_HOUR_FILTER and server_time.hour in config.TOXIC_HOURS):
+        # --- CEK CIRCUIT BREAKER OTOMATIS (terpisah dari tombol manual bot_control) ---
+        now_dt = datetime.now()
+        today_str = now_dt.strftime("%Y-%m-%d")
+        risk = get_risk_state()
+
+        daily_breaker_active = bool(config.ENABLE_DAILY_LOSS_BREAKER and risk["daily_breaker_date"] == today_str)
+
+        streak_breaker_active = False
+        if config.ENABLE_STREAK_BREAKER and risk["streak_paused_until"]:
+            try:
+                paused_until_dt = datetime.strptime(risk["streak_paused_until"], "%Y-%m-%d %H:%M:%S")
+                if now_dt < paused_until_dt:
+                    streak_breaker_active = True
+                else:
+                    # Cooldown selesai -> auto-resume, reset counter supaya mulai bersih
+                    update_risk_state(consecutive_real_sl=0, streak_paused_until="")
+            except Exception:
+                pass
+
+        # --- PROTEKSI WEEKEND EKSPLISIT (jangan cuma andalkan broker) ---
+        # PENTING: pakai server_time (waktu broker, dari candle MT5), BUKAN
+        # now_dt (jam lokal VPS) -- WEEKEND_START_DAY/HOUR di config.py
+        # dikalibrasi terhadap waktu broker (sama seperti dipakai
+        # trading_env.py saat training/backtest dari timestamp data).
+        is_weekend_buffer = False
+        if config.ENABLE_WEEKEND_FIREWALL:
+            # Buffer: sudah masuk H-30menit (atau sesuai WEEKEND_CLOSE_BUFFER_MINUTES)
+            # sebelum WEEKEND_START_HOUR di hari WEEKEND_START_DAY.
+            wk_buffer_window = (
+                server_time.weekday() == config.WEEKEND_START_DAY and
+                server_time.hour == config.WEEKEND_START_HOUR - 1 and
+                server_time.minute >= (60 - config.WEEKEND_CLOSE_BUFFER_MINUTES)
+            )
+            # Sudah benar-benar masuk periode market tutup (Jumat H jam X sampai Minggu H jam Y).
+            wk_fully_closed = (
+                (server_time.weekday() == config.WEEKEND_START_DAY and server_time.hour >= config.WEEKEND_START_HOUR) or
+                server_time.weekday() == 6 or
+                (server_time.weekday() == config.WEEKEND_END_DAY and server_time.hour < config.WEEKEND_END_HOUR)
+            )
+            is_weekend_buffer = wk_buffer_window or wk_fully_closed
+            if is_weekend_buffer and self.position != 0.0:
+                close_bot_positions(self.symbol, self.magic)
+                if self.open_trade_ticket is not None:
+                    deal_info = get_close_reason_and_profit(self.open_trade_ticket)
+                    if deal_info:
+                        update_trade_close_detail(self.open_trade_db_id, deal_info["price"], "WEEKEND_CLOSE", deal_info["profit"], deal_info["commission"], deal_info["swap"], mt5.account_info().balance if mt5.account_info() else 0.0, self.open_trade_mfe, self.open_trade_mae)
+                    save_log("CLOSE", "Posisi ditutup paksa: proteksi weekend.")
+                    self.open_trade_ticket = None; self.open_trade_db_id = None
+                self.position = 0.0
+
+        if bot_status == "PAUSED" or is_weekend_buffer or (config.ENABLE_TOXIC_HOUR_FILTER and server_time.hour in config.TOXIC_HOURS):
             target_position = 0.0
+        elif daily_breaker_active:
+            target_position = 0.0
+            save_log("INFO", f"Evaluasi: DAILY LOSS BREAKER aktif ({today_str}). Menunggu hari kalender berganti.")
+        elif streak_breaker_active:
+            target_position = 0.0
+            save_log("INFO", f"Evaluasi: STREAK BREAKER aktif (cooldown sampai {risk['streak_paused_until']}).")
         elif self.position != 0.0 and self.steps_in_position < config.MIN_HOLD_STEPS:
             target_position = self.position
 
@@ -476,9 +571,22 @@ class LiveMT5Env(gym.Env):
         try: save_ai_decision(datetime.now().strftime("%Y-%m-%d %H:%M:%S"), self.symbol, float(current_price), bid, ask, current_bal, current_equity, int(action), self.position, target_position, json.dumps(norm_obs_to_log.tolist()))
         except Exception: pass
 
-        today_str = datetime.now().strftime("%Y-%m-%d")
-        daily_profit = current_bal - get_daily_start_balance(today_str, current_bal)
-        
+        day_start_balance = get_daily_start_balance(today_str, current_bal)
+        daily_profit = current_bal - day_start_balance
+
+        # --- TRIP DAILY LOSS BREAKER ---
+        # Dicek SETELAH balance hari ini diketahui, SEBELUM step berikutnya
+        # sempat entry baru. Begitu tembus, risk_state.daily_breaker_date
+        # diisi hari ini -> semua step berikutnya di hari yang sama otomatis
+        # dipaksa flat (lihat pengecekan daily_breaker_active di atas),
+        # sampai tanggal kalender berganti (direset otomatis oleh
+        # get_daily_start_balance yang keyed per tanggal).
+        if config.ENABLE_DAILY_LOSS_BREAKER and not daily_breaker_active:
+            limit_usd = config.DAILY_LOSS_LIMIT_USD if config.DAILY_LOSS_LIMIT_USD is not None else day_start_balance * config.DAILY_LOSS_LIMIT_PCT
+            if daily_profit <= -abs(limit_usd):
+                update_risk_state(daily_breaker_date=today_str)
+                save_log("WARNING", f"DAILY LOSS BREAKER TERPICU! Rugi hari ini ${daily_profit:.2f} (limit -${limit_usd:.2f}). Bot flat sampai besok.")
+
         tf_map = {
             "1M": mt5.TIMEFRAME_M1, "5M": mt5.TIMEFRAME_M5, "15M": mt5.TIMEFRAME_M15,
             "30M": mt5.TIMEFRAME_M30, "1H": mt5.TIMEFRAME_H1, "4H": mt5.TIMEFRAME_H4
@@ -544,8 +652,29 @@ class LiveMT5Env(gym.Env):
                     if self.open_trade_ticket is not None:
                         deal_info = get_close_reason_and_profit(self.open_trade_ticket)
                         if deal_info:
+                            net_p = (deal_info["profit"] or 0.0) + (deal_info["commission"] or 0.0) + (deal_info["swap"] or 0.0)
                             update_trade_close_detail(self.open_trade_db_id, deal_info["price"], deal_info["reason"], deal_info["profit"], deal_info["commission"], deal_info["swap"], current_bal, self.open_trade_mfe, self.open_trade_mae)
                             save_log("CLOSE", f"Tertutup ({deal_info['reason']}) | Profit: ${deal_info['profit']:.2f}")
+
+                            # --- UPDATE STREAK BREAKER (kumulatif, lihat catatan di config.py) ---
+                            # Broker DEAL_REASON == 'SL' mencakup baik SL asli maupun SL yang
+                            # sudah dipindah ke breakeven -- makanya dibedakan pakai net_p,
+                            # bukan cuma deal_info['reason'] == 'SL'.
+                            if config.ENABLE_STREAK_BREAKER:
+                                if deal_info["reason"] == "SL" and net_p <= -abs(config.STREAK_LOSS_MIN_USD):
+                                    new_count = get_risk_state()["consecutive_real_sl"] + 1
+                                    if new_count >= config.STREAK_SL_LIMIT:
+                                        cooldown_until_str = (datetime.now() + pd.Timedelta(minutes=config.STREAK_COOLDOWN_MINUTES)).strftime("%Y-%m-%d %H:%M:%S")
+                                        update_risk_state(consecutive_real_sl=0, streak_paused_until=cooldown_until_str)
+                                        save_log("WARNING", f"STREAK BREAKER TERPICU! {new_count}x SL asli (kumulatif). Cooldown flat sampai {cooldown_until_str}.")
+                                    else:
+                                        update_risk_state(consecutive_real_sl=new_count)
+                                elif deal_info["reason"] == "TP":
+                                    update_risk_state(consecutive_real_sl=0)
+                                # SL-di-breakeven & reason lain (CLIENT dll) dilewati: tidak
+                                # menambah, tidak mereset -- konsisten dengan definisi yang
+                                # sudah divalidasi terhadap data 21 Sep.
+
                             self.open_trade_ticket = None; self.open_trade_db_id = None; self.position = 0.0
                 update_current_state(current_bal, daily_profit, pos_text, live_bid, live_ask)
             except Exception: pass

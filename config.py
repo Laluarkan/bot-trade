@@ -108,6 +108,35 @@ WEEKEND_START_HOUR = 4
 WEEKEND_END_DAY = 0
 WEEKEND_END_HOUR = 5
 
+# --- CIRCUIT BREAKER HARIAN (backstop utama, peduli $ apa pun mekanismenya) ---
+# Rugi harian tembus batas -> bot_control TIDAK diubah (tetap milik tombol
+# manual), tapi risk_state.daily_breaker_date diisi tanggal hari ini ->
+# live_env.py otomatis paksa flat sampai tanggal kalender berganti.
+ENABLE_DAILY_LOSS_BREAKER = True
+DAILY_LOSS_LIMIT_PCT = 0.05      # auto-stop kalau rugi harian >= 5% saldo awal hari ini
+DAILY_LOSS_LIMIT_USD = None      # isi angka $ tetap kalau mau override % (mis. 50.0), None = pakai % saja
+
+# --- CIRCUIT BREAKER SL BERUNTUN (deteksi cepat regime choppy) ---
+# Hitungan KUMULATIF, bukan harus berturut-turut: SL-di-breakeven (net_profit
+# mendekati 0) dan SIGNAL_CHANGE dilewati/tidak mereset counter; hanya SL
+# ASLI (net_profit <= -STREAK_LOSS_MIN_USD) yang menambah counter, dan hanya
+# TP asli yang mereset ke 0. Validasi dari data live 13 hari: dengan definisi
+# ini, limit 8 akan trigger jam 10:05 di hari terburuk (21 Sep), jauh sebelum
+# kerugian terbesar jam 10:40-12:44.
+ENABLE_STREAK_BREAKER = True
+STREAK_SL_LIMIT = 8
+STREAK_LOSS_MIN_USD = 1.0        # net_profit lebih negatif dari -$1 dianggap SL asli, bukan SL-BE
+STREAK_COOLDOWN_MINUTES = 120    # setelah limit tercapai, flat paksa selama ini, lalu resume otomatis
+
+# --- PROTEKSI WEEKEND EKSPLISIT DI LIVE ---
+# Sebelumnya live_env.py TIDAK menutup posisi menjelang weekend sendiri --
+# cuma asumsi "broker sudah handle otomatis". Ini bikin proteksi gap weekend
+# tergantung asumsi yang belum tentu benar. Sekarang ditutup eksplisit oleh
+# bot X menit sebelum WEEKEND_START_HOUR, dan entry baru diblokir sampai
+# WEEKEND_END_HOUR hari Minggu (dua-duanya dari WEEKEND_START_DAY/HOUR &
+# WEEKEND_END_DAY/HOUR di atas).
+WEEKEND_CLOSE_BUFFER_MINUTES = 30
+
 COMMISSION_RATE = 0.0000
 SPREAD_COST_RATE = 0.0001
 SLIPPAGE_COEFF = 0.0000
