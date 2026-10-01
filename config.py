@@ -139,7 +139,15 @@ WEEKEND_CLOSE_BUFFER_MINUTES = 30
 
 COMMISSION_RATE = 0.0000
 SPREAD_COST_RATE = 0.0001
-SLIPPAGE_COEFF = 0.0000
+# PERBAIKAN: slippage sekarang dalam satuan POINT (sama seperti MIN_SL_PTS dkk),
+# diterapkan PER-OZ seperti spread_cost -- bukan persentase dari notional value.
+# SLIPPAGE_COEFF lama (trade_value * 0.0005) salah basis: untuk posisi notional
+# ribuan dolar, itu jadi beberapa dolar per transaksi -- lebih besar dari
+# RISK_PER_TRADE ($10) itu sendiri -> otomatis margin call di semua episode.
+# Mulai dari nilai konservatif realistis utk gold M1 (1-3 point), lalu naikkan
+# bertahap (mis. 5, 10) untuk uji sensitivitas -- JANGAN loncat ke angka besar
+# langsung supaya kita bisa lihat di titik berapa edge-nya mulai goyah.
+SLIPPAGE_PTS = 20.0
 
 EPISODE_LENGTH = 6000    # UNTUK M1 pakai: 6000 (6000 menit, setara 1500 step M5 x5 menit = 7500 menit; kurang lebih sepadan)
 INCLUDE_POSITION_IN_STATE = True

@@ -224,7 +224,7 @@ class TradingCallback(BaseCallback):
             fig.savefig(str(chart_path), dpi=150)
             plt.close(fig)
 
-def make_env_fn(features, prices, spreads, dates, extra, episode_length, timeframe):
+def make_env_fn(features, prices, spreads, dates, extra, episode_length, timeframe, eval_seed=None):
     def _init():
         env = GoldTradingEnv(
             features, prices, spreads, dates=dates, extra=extra,
@@ -232,6 +232,7 @@ def make_env_fn(features, prices, spreads, dates, extra, episode_length, timefra
             random_start=True,
             use_margin_call=True,
             timeframe=timeframe,
+            eval_seed=eval_seed,
         )
         return Monitor(env)
     return _init
@@ -337,7 +338,7 @@ def run_backtest(args):
         eval_f, eval_p, eval_s, eval_d, eval_e = test_f, test_p, test_s, test_d, test_e
     else:
         eval_f, eval_p, eval_s, eval_d, eval_e = features, prices, spreads, dates, extra
-    env_fn = make_env_fn(eval_f, eval_p, eval_s, eval_d, eval_e, args.episode_length, args.timeframe.upper())
+    env_fn = make_env_fn(eval_f, eval_p, eval_s, eval_d, eval_e, args.episode_length, args.timeframe.upper(), eval_seed=args.seed)
     model = PPO.load(model_path)
     
     profit, trades, win_rate, s_time, e_time, dur, act_trades, avg_prof = evaluate_model(model, env_fn, args.symbol, episodes=args.episodes, dataset_dates=eval_d, mode_name="BACKTEST")
@@ -420,6 +421,10 @@ def main():
     p_back.add_argument("--data-dir", default=str(config.DATA_DIR))
     p_back.add_argument("--episodes", type=int, default=10)
     p_back.add_argument("--data-split", type=str, choices=["test", "all"], default="test")
+    # PERBAIKAN: seed tetap supaya episode yang disampling SELALU SAMA di tiap
+    # run -- perlu ini untuk membandingkan efek config (mis. SLIPPAGE_PTS)
+    # secara adil, bukan tercampur keberuntungan episode acak yang berbeda.
+    p_back.add_argument("--seed", type=int, default=42, help="Seed utk sampling episode backtest (default 42, SAMAKAN antar run yang mau dibandingkan)")
     
     p_live = subparsers.add_parser("live")
     p_live.add_argument("--mode", type=str, choices=["demo", "real"], default="demo")

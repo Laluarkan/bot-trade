@@ -11,7 +11,7 @@ class GoldTradingEnv(gym.Env):
                  extra: dict = None,
                  episode_length: int = None, random_start: bool = True,
                  include_position: bool = None, timeframe: str = None,
-                 use_margin_call: bool = True):
+                 use_margin_call: bool = True, eval_seed: int = None):
         super().__init__()
         self.features = features.astype(np.float32)
         self.prices = prices.astype(np.float64)
@@ -52,12 +52,26 @@ class GoldTradingEnv(gym.Env):
 
         self.action_space = spaces.Discrete(3)
         self._action_map = {0: -1.0, 1: 0.0, 2: 1.0}
+
+        # PERBAIKAN: kalau eval_seed diisi (dipakai saat backtest/evaluasi),
+        # start_idx tiap episode diambil dari RNG terpisah yang deterministik
+        # -- TIDAK bergantung pada self.np_random bawaan gymnasium, yang di
+        # beberapa versi SB3/gymnasium bisa random ulang tiap proses baru
+        # kalau seed tidak diteruskan secara eksplisit lewat VecEnv. Ini yang
+        # bikin tiap run `python main.py backtest` menyampel 10 episode
+        # BERBEDA walau config yang diuji (mis. SLIPPAGE_PTS) berbeda --
+        # membuat perbandingan antar run jadi tidak apple-to-apple.
+        self._eval_rng = np.random.default_rng(eval_seed) if eval_seed is not None else None
+
         self.reset()
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
         max_start = max(1, self.n_steps - self.episode_length - 1)
-        self.start_idx = int(self.np_random.integers(0, max_start)) if self.random_start else 0
+        if self._eval_rng is not None:
+            self.start_idx = int(self._eval_rng.integers(0, max_start)) if self.random_start else 0
+        else:
+            self.start_idx = int(self.np_random.integers(0, max_start)) if self.random_start else 0
         self.t = self.start_idx
         self.end_idx = min(self.start_idx + self.episode_length, self.n_steps - 1)
 
@@ -234,7 +248,13 @@ class GoldTradingEnv(gym.Env):
             transacted_size = new_size_oz if target_position != 0.0 else self.current_size_oz
             commission = trade_value * config.COMMISSION_RATE
             spread_cost = transacted_size * self.spreads[self.t]
-            impact = trade_value * config.SLIPPAGE_COEFF
+            # PERBAIKAN: slippage dihitung PER-OZ (offset harga kecil x ukuran posisi),
+            # SAMA seperti spread_cost -- BUKAN persentase dari trade_value (notional).
+            # Formula lama (trade_value * SLIPPAGE_COEFF) memakai notional penuh sebagai
+            # basis, jadi SLIPPAGE_COEFF kecil pun menghasilkan biaya $ yang jauh lebih
+            # besar dari risiko per-trade ($RISK_PER_TRADE) itu sendiri -> pasti blow-up.
+            slippage_price = config.SLIPPAGE_PTS * config.POINT
+            impact = transacted_size * slippage_price
             transaction_cost = commission + spread_cost + impact
 
             self.balance -= transaction_cost
