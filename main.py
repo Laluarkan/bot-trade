@@ -63,7 +63,7 @@ def evaluate_model(model, env_fn, symbol, episodes=1, dataset_dates=None, mode_n
     start_time_exec = time.time()
     
     all_pnl_histories = []
-    for _ in range(episodes):
+    for _ep_idx in range(episodes):
         obs = env.reset()
         current_pos = 0.0
         ep_pnl = []
@@ -71,7 +71,19 @@ def evaluate_model(model, env_fn, symbol, episodes=1, dataset_dates=None, mode_n
         try:
             step = env.envs[0].unwrapped.t
             hist_start_dates.append(env.envs[0].unwrapped.dates[step])
-        except: pass
+            # --- DEBUG SEMENTARA: hapus blok ini setelah masalah ketemu ---
+            import os as _os
+            if _os.environ.get("DEBUG_SAMPLING"):
+                _u = env.envs[0].unwrapped
+                _max_start = max(1, _u.n_steps - _u.episode_length - 1)
+                print(f"[DEBUG] Eps {_ep_idx+1}: n_steps={_u.n_steps} episode_length={_u.episode_length} "
+                      f"max_start={_max_start} start_idx={_u.start_idx} end_idx={_u.end_idx} "
+                      f"start_date={_u.dates[_u.start_idx]} end_date_target={_u.dates[_u.end_idx]}")
+            # --- akhir blok debug ---
+        except Exception as _e:
+            import os as _os
+            if _os.environ.get("DEBUG_SAMPLING"):
+                print(f"[DEBUG] Eps {_ep_idx+1}: GAGAL ambil start date -> {type(_e).__name__}: {_e}")
         done = False
         while not done:
             action, _ = model.predict(obs, deterministic=True)
@@ -88,10 +100,13 @@ def evaluate_model(model, env_fn, symbol, episodes=1, dataset_dates=None, mode_n
             ep_pnl.append(p_val - config.INITIAL_BALANCE)
             
             if done:
-                try:
-                    step = env.envs[0].unwrapped.t
-                    hist_end_dates.append(env.envs[0].unwrapped.dates[step])
-                except: pass
+                # PERBAIKAN: ambil tanggal akhir dari info (dicatat di dalam
+                # trading_env.py SEBELUM VecEnv auto-reset), bukan dengan baca
+                # env.unwrapped.t/dates di sini -- di titik ini env mungkin
+                # SUDAH di-reset otomatis ke episode berikutnya oleh DummyVecEnv.
+                end_date = info[0].get("date")
+                if end_date is not None:
+                    hist_end_dates.append(end_date)
                 profit = p_val - config.INITIAL_BALANCE
                 total_profit += profit
                 if profit > 0:

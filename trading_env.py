@@ -311,11 +311,23 @@ class GoldTradingEnv(gym.Env):
 
         done = terminated or truncated
         obs = np.zeros(self.observation_space.shape, dtype=np.float32) if done else self._get_obs()
+        # PERBAIKAN: sertakan tanggal step INI langsung di info, diambil SEBELUM
+        # kemungkinan auto-reset oleh VecEnv (DummyVecEnv me-reset sub-env secara
+        # otomatis begitu done=True, DI DALAM pemanggilan step() itu sendiri --
+        # kode pemanggil yang baca env.unwrapped.t/dates SETELAH step() kembali
+        # sebenarnya sudah membaca state episode BARU hasil auto-reset, bukan
+        # episode yang baru selesai. Info dict ini masih berasal dari step()
+        # SEBELUM auto-reset terjadi, jadi aman dipakai evaluate_model.
+        current_date = None
+        if self.dates is not None:
+            safe_t = min(self.t, self.n_steps - 1)
+            current_date = self.dates[safe_t]
         info = {
             "portfolio_value": self.portfolio_value,
             "position": self.position,
             "transaction_cost": transaction_cost,
             "drawdown": drawdown,
-            "size_oz": self.current_size_oz
+            "size_oz": self.current_size_oz,
+            "date": current_date,
         }
         return obs, float(step_reward), terminated, truncated, info
