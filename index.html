@@ -299,6 +299,66 @@
             color: var(--accent-green);
             background: rgba(16, 185, 129, 0.1);
         }
+
+        .card.span-2 {
+            grid-column: span 2;
+        }
+
+        /* --- Mobile Responsiveness --- */
+        @media (max-width: 1024px) {
+            body {
+                height: auto;
+                overflow-y: auto;
+                padding: 15px;
+            }
+            .main-content {
+                display: flex;
+                flex-direction: column;
+            }
+            .panel {
+                min-height: 350px;
+                margin-bottom: 15px;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 15px;
+            }
+            .header h1 {
+                font-size: 1.15rem;
+                flex-wrap: wrap;
+                line-height: 1.4;
+            }
+            .status-container {
+                width: 100%;
+                justify-content: flex-start;
+                flex-wrap: wrap;
+            }
+            .grid-container {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        @media (max-width: 500px) {
+            .grid-container {
+                grid-template-columns: 1fr;
+            }
+            .card.span-2 {
+                grid-column: span 1;
+            }
+            .status-container {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 10px;
+            }
+            .bot-toggle-btn {
+                width: 100%;
+                padding: 10px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -324,7 +384,7 @@
             <h3>Daily Net Profit</h3>
             <div class="value" id="profitValue">$-.--</div>
         </div>
-        <div class="card" style="grid-column: span 2;">
+        <div class="card span-2">
             <h3>Active Position</h3>
             <div class="value" id="positionValue">NONE</div>
         </div>
