@@ -22,13 +22,24 @@ import pandas as pd
 import MetaTrader5 as mt5
 
 # --- KONFIGURASI ---
+# Bisa dioverride lewat argumen CLI, contoh:
+#   python download_data.py                       -> M1, 200.000 bar (perilaku lama)
+#   python download_data.py --timeframe 5M        -> M5, 100.000 bar (~1,3 tahun)
+#   python download_data.py --timeframe 5M --bars 150000
 SYMBOLS = ["XAUUSDm", "EURUSDm"]
-TIMEFRAME = mt5.TIMEFRAME_M1
-TIMEFRAME_STR = "1M"
-TARGET_BARS = 200_000
+TF_MAP = {
+    "1M": mt5.TIMEFRAME_M1, "5M": mt5.TIMEFRAME_M5, "15M": mt5.TIMEFRAME_M15,
+    "30M": mt5.TIMEFRAME_M30, "1H": mt5.TIMEFRAME_H1, "4H": mt5.TIMEFRAME_H4,
+}
+DEFAULT_BARS = {"1M": 200_000, "5M": 100_000, "15M": 60_000, "30M": 40_000, "1H": 30_000, "4H": 15_000}
 CHUNK_SIZE = 50_000       # aman di bawah batas ~100rb per panggilan
 MAX_RETRIES_PER_CHUNK = 3
 OUTPUT_DIR = "data"
+
+# Diisi di main() dari argumen CLI (default = perilaku lama: M1, 200rb bar)
+TIMEFRAME = TF_MAP["1M"]
+TIMEFRAME_STR = "1M"
+TARGET_BARS = DEFAULT_BARS["1M"]
 
 
 def fetch_in_chunks(symbol: str, timeframe, target_bars: int, chunk_size: int) -> pd.DataFrame:
@@ -116,11 +127,26 @@ def download_historical_data():
         print(f"    - Tersimpan di : {output_path}")
         if pct_of_target < 95:
             print(f"    [WARNING] Kurang dari target -> kemungkinan histori lokal MT5 belum sedalam itu.")
-            print(f"              Lihat catatan di atas file ini (scroll chart M1 {symbol} ke belakang dulu di MT5).")
+            print(f"              Lihat catatan di atas file ini (scroll chart {TIMEFRAME_STR} {symbol} ke belakang dulu di MT5).")
 
     print("\n" + "=" * 60)
     mt5.shutdown()
 
 
-if __name__ == "__main__":
+def main():
+    import argparse
+    global TIMEFRAME, TIMEFRAME_STR, TARGET_BARS, SYMBOLS
+    ap = argparse.ArgumentParser(description="Download histori MT5 (chunked) ke folder data/")
+    ap.add_argument("--timeframe", default="1M", choices=list(TF_MAP), help="Default 1M")
+    ap.add_argument("--bars", type=int, default=None, help="Target jumlah bar (default tergantung timeframe)")
+    ap.add_argument("--symbols", nargs="+", default=SYMBOLS, help="Default: XAUUSDm EURUSDm")
+    a = ap.parse_args()
+    TIMEFRAME_STR = a.timeframe.upper()
+    TIMEFRAME = TF_MAP[TIMEFRAME_STR]
+    TARGET_BARS = a.bars or DEFAULT_BARS[TIMEFRAME_STR]
+    SYMBOLS = a.symbols
     download_historical_data()
+
+
+if __name__ == "__main__":
+    main()

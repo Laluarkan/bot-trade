@@ -63,7 +63,7 @@ def evaluate_model(model, env_fn, symbol, episodes=1, dataset_dates=None, mode_n
     start_time_exec = time.time()
     
     all_pnl_histories = []
-    for _ep_idx in range(episodes):
+    for _ in range(episodes):
         obs = env.reset()
         current_pos = 0.0
         ep_pnl = []
@@ -71,19 +71,8 @@ def evaluate_model(model, env_fn, symbol, episodes=1, dataset_dates=None, mode_n
         try:
             step = env.envs[0].unwrapped.t
             hist_start_dates.append(env.envs[0].unwrapped.dates[step])
-            # --- DEBUG SEMENTARA: hapus blok ini setelah masalah ketemu ---
-            import os as _os
-            if _os.environ.get("DEBUG_SAMPLING"):
-                _u = env.envs[0].unwrapped
-                _max_start = max(1, _u.n_steps - _u.episode_length - 1)
-                print(f"[DEBUG] Eps {_ep_idx+1}: n_steps={_u.n_steps} episode_length={_u.episode_length} "
-                      f"max_start={_max_start} start_idx={_u.start_idx} end_idx={_u.end_idx} "
-                      f"start_date={_u.dates[_u.start_idx]} end_date_target={_u.dates[_u.end_idx]}")
-            # --- akhir blok debug ---
-        except Exception as _e:
-            import os as _os
-            if _os.environ.get("DEBUG_SAMPLING"):
-                print(f"[DEBUG] Eps {_ep_idx+1}: GAGAL ambil start date -> {type(_e).__name__}: {_e}")
+        except Exception:
+            pass
         done = False
         while not done:
             action, _ = model.predict(obs, deterministic=True)
@@ -235,7 +224,7 @@ class TradingCallback(BaseCallback):
             plot_panel(axes[1, 1], self.hist_pg_loss, "Policy Gradient Loss", "PG Loss", 'lightcoral', 'darkred')
             plot_panel(axes[1, 2], self.hist_val_loss, "Value Loss", "Loss (Target: 0)", 'skyblue', 'darkblue')
             plt.tight_layout()
-            chart_path = config.RESULTS_DIR / f"{config.MODEL_PREFIX}_learning_curve.png"
+            chart_path = config.RESULTS_DIR / f"{config.MODEL_PREFIX}_{config.DEFAULT_TIMEFRAME}_learning_curve.png"   # per-timeframe, supaya training M5 tidak menimpa kurva M1
             fig.savefig(str(chart_path), dpi=150)
             plt.close(fig)
 
@@ -424,15 +413,15 @@ def main():
     p_pre = subparsers.add_parser("pretrain")
     p_pre.add_argument("--symbol", default=config.DEFAULT_SYMBOL)
     p_pre.add_argument("--timeframe", default=config.DEFAULT_TIMEFRAME)
-    p_pre.add_argument("--timesteps", type=int, default=config.TOTAL_TIMESTEPS)
-    p_pre.add_argument("--episode-length", type=int, default=config.EPISODE_LENGTH)
+    p_pre.add_argument("--timesteps", type=int, default=None, help="Default: TOTAL_TIMESTEPS dari profil timeframe di config.py")
+    p_pre.add_argument("--episode-length", type=int, default=None, help="Default: EPISODE_LENGTH dari profil timeframe di config.py")
     p_pre.add_argument("--data-dir", default=str(config.DATA_DIR))
     p_pre.add_argument("--resume", action="store_true", help="Lanjutkan training dari model sebelumnya tanpa menghapus ingatan")
     
     p_back = subparsers.add_parser("backtest")
     p_back.add_argument("--symbol", default=config.DEFAULT_SYMBOL)
     p_back.add_argument("--timeframe", default=config.DEFAULT_TIMEFRAME)
-    p_back.add_argument("--episode-length", type=int, default=config.EPISODE_LENGTH)
+    p_back.add_argument("--episode-length", type=int, default=None, help="Default: EPISODE_LENGTH dari profil timeframe di config.py")
     p_back.add_argument("--data-dir", default=str(config.DATA_DIR))
     p_back.add_argument("--episodes", type=int, default=10)
     p_back.add_argument("--data-split", type=str, choices=["test", "all"], default="test")
@@ -449,6 +438,18 @@ def main():
     p_live.add_argument("--magic", type=int, default=10001, help="Magic Number unik MT5 untuk bot ini")
     
     args = parser.parse_args()
+
+    # Terapkan profil timeframe (EPISODE_LENGTH, MIN_HOLD_STEPS, SL/TP floor, dst)
+    # SEBELUM training/backtest/live jalan, supaya ketiganya memakai angka yang
+    # sama untuk timeframe yang sama. Profil 1M = nilai dasar (tidak mengubah apa pun).
+    active = config.apply_timeframe_profile(args.timeframe)
+    if getattr(args, "episode_length", None) is None:
+        args.episode_length = config.EPISODE_LENGTH
+    if getattr(args, "timesteps", None) is None:
+        args.timesteps = config.TOTAL_TIMESTEPS
+    print(f"[*] Profil timeframe aktif: {args.timeframe.upper()} -> " +
+          ", ".join(f"{k}={v}" for k, v in active.items()))
+
     if args.command == "pretrain": run_pretrain(args)
     elif args.command == "backtest": run_backtest(args)
     elif args.command == "live": run_live(args)

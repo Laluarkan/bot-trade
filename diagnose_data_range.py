@@ -14,7 +14,9 @@ import config
 from data_loader import load_csv, build_feature_matrix, walk_forward_splits
 
 SYMBOL = config.DEFAULT_SYMBOL
-TF = "1M"
+import sys
+TF = (sys.argv[1] if len(sys.argv) > 1 else "1M").upper()   # contoh: python diagnose_data_range.py 5M
+config.apply_timeframe_profile(TF)
 
 print("=" * 70)
 print("STEP 0: Baca CSV mentah langsung (tanpa lewat load_csv)")

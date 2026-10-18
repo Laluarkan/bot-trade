@@ -143,6 +143,17 @@ def get_daily_start_balance(date_str, current_bal):
         conn.commit()
         return current_bal
 
+def get_today_closed_pnl(date_str):
+    """Total net_profit trade CLOSED milik bot ini (DB-nya sendiri) pada tanggal tsb.
+    Dipakai kalau config.DAILY_BREAKER_PER_BOT=True supaya rugi bot lain di akun
+    yang sama tidak ikut memicu breaker bot ini."""
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute("SELECT COALESCE(SUM(net_profit), 0) FROM trade_details "
+                  "WHERE status='CLOSED' AND substr(timestamp_close, 1, 10)=?", (date_str,))
+        row = c.fetchone()
+        return float(row[0] or 0.0)
+
 def save_trade_open_detail(ticket, symbol, action, lot_size, entry_price, sl_price, tp_price, sl_pts, tp_pts, volatility, balance_before, ai_action, bid, ask, spread, server_hour, server_dayofweek):
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
@@ -573,6 +584,9 @@ class LiveMT5Env(gym.Env):
 
         day_start_balance = get_daily_start_balance(today_str, current_bal)
         daily_profit = current_bal - day_start_balance
+        if getattr(config, 'DAILY_BREAKER_PER_BOT', False):
+            # hanya trade milik bot ini (aman kalau ada bot lain di akun yang sama)
+            daily_profit = get_today_closed_pnl(today_str)
 
         # --- TRIP DAILY LOSS BREAKER ---
         # Dicek SETELAH balance hari ini diketahui, SEBELUM step berikutnya

@@ -22,7 +22,8 @@ def fmt_pip(dollar_value):
     return dollar_value / PIP_SIZE
 
 
-def analyze_timeframe(symbol: str, timeframe: str):
+def analyze_timeframe(symbol: str, timeframe: str, recent_days: int = None):
+    config.apply_timeframe_profile(timeframe)   # supaya "Config SEKARANG" = nilai profil timeframe ini
     print("\n" + "=" * 70)
     print(f"  ANALISIS {symbol} — TIMEFRAME {timeframe}")
     print("=" * 70)
@@ -41,12 +42,21 @@ def analyze_timeframe(symbol: str, timeframe: str):
     # buang bagian awal yang masih warm-up indikator (belum stabil)
     warmup = max(config.MACRO_EMA_SPAN, 500)
     atr = atr.iloc[warmup:].reset_index(drop=True)
+    range_start = dates[warmup]
+    if recent_days:
+        # Hanya pakai N hari terakhir: ATR dalam $ ikut naik-turun mengikuti level
+        # harga emas, jadi persentil seluruh histori bisa meleset dari kondisi sekarang.
+        d_trim = dates[warmup:]
+        mask = np.asarray(d_trim >= d_trim[-1] - pd.Timedelta(days=recent_days))
+        atr = atr[mask].reset_index(drop=True)
+        range_start = d_trim[mask][0]
+        print(f"\n[MODE --recent-days {recent_days}] persentil ATR hanya dari {recent_days} hari terakhir")
 
     raw_sl = atr * config.SL_ATR_MULTIPLIER
     raw_tp = atr * config.TP_ATR_MULTIPLIER
 
     print(f"\n[Jumlah candle dipakai (setelah buang warm-up {warmup} bar)]: {len(atr):,}")
-    print(f"[Rentang tanggal]: {dates[warmup]} s/d {dates[-1]}")
+    print(f"[Rentang tanggal]: {range_start} s/d {dates[-1]}")
 
     def line(label, series_dollar):
         p = series_dollar
@@ -121,11 +131,13 @@ def main():
     p.add_argument("--symbol", default=config.DEFAULT_SYMBOL)
     p.add_argument("--timeframe", default="5M")
     p.add_argument("--timeframe2", default=None, help="Timeframe kedua opsional, mis. 1M, biar dicek sekaligus")
+    p.add_argument("--recent-days", type=int, default=None,
+                   help="Hitung persentil ATR/SL/TP hanya dari N hari terakhir (mis. 90). Default: seluruh data")
     args = p.parse_args()
 
-    analyze_timeframe(args.symbol, args.timeframe.upper())
+    analyze_timeframe(args.symbol, args.timeframe.upper(), args.recent_days)
     if args.timeframe2:
-        analyze_timeframe(args.symbol, args.timeframe2.upper())
+        analyze_timeframe(args.symbol, args.timeframe2.upper(), args.recent_days)
 
 
 if __name__ == "__main__":

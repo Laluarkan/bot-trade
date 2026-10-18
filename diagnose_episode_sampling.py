@@ -16,7 +16,9 @@ from data_loader import load_csv, build_feature_matrix, walk_forward_splits
 from trading_env import GoldTradingEnv
 
 SYMBOL = config.DEFAULT_SYMBOL
-TF = "1M"
+import sys
+TF = (sys.argv[1] if len(sys.argv) > 1 else "1M").upper()   # contoh: python diagnose_episode_sampling.py 5M
+config.apply_timeframe_profile(TF)
 EPISODE_LENGTH = config.EPISODE_LENGTH
 
 df = load_csv(SYMBOL, TF, data_dir=config.DATA_DIR)

@@ -294,7 +294,7 @@ class GoldTradingEnv(gym.Env):
         # kecil (delta) supaya tidak memicu overtrading. ---
         if self.position == 0.0 and target_position == 0.0 and self.cooldown_timer == 0:
             self.idle_steps += 1
-            if self.idle_steps > 20:
+            if self.idle_steps > config.IDLE_PENALTY_AFTER_STEPS:
                 step_reward -= c['delta']
         else:
             self.idle_steps = 0

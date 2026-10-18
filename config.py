@@ -73,14 +73,15 @@ MACRO_EMA_SPAN = 500
 TREND_EMA_SPAN = 200     # EMA dipakai filter tren cepat (dulu dihitung ulang di env dari raw prices)
 
 # --- ATR DINAMIS DENGAN BATAS BAWAH (FLOOR) & ATAS (CEILING), DALAM POINT ---
-# NILAI AKTIF DI BAWAH INI UNTUK M5 (hasil validasi ATR asli via
-# check_market_params.py, bukan tebakan lagi). Nilai M1 dikomentari di
-# sebelahnya untuk swap cepat kalau mau retrain M1.
+# !!! NILAI DASAR DI SECTION INI = NILAI M1 (yang sedang jalan live) !!!
+# Nilai untuk timeframe lain (M5, dst) TIDAK diedit di sini, tapi di
+# TIMEFRAME_PROFILES di bagian paling bawah file ini. Profil dipilih otomatis
+# dari argumen --timeframe (lihat apply_timeframe_profile di bawah).
 SL_ATR_MULTIPLIER = 2.0
 TP_ATR_MULTIPLIER = 4.0
-MIN_SL_PTS = 3600        # M5 (data tervalidasi, p25 raw_SL): 33 pip = $3.3.  UNTUK M1 pakai: 3600 (36 pip)
-MIN_TP_PTS = 7200        # M5: 66 pip = $6.6, rasio TP:SL=2:1 tetap dijaga.   UNTUK M1 pakai: 7200 (72 pip)
-MAX_SL_PTS = 9000       # M5 (p90 raw_SL): 140 pip = $14.                    UNTUK M1 pakai: 9000 (90 pip)
+MIN_SL_PTS = 3600        # M1: $3.6
+MIN_TP_PTS = 7200        # M1: $7.2 (rasio TP:SL = 2:1)
+MAX_SL_PTS = 9000       # M1: $9.0
 
 BE_TRIGGER_PCT = 0.50
 BE_BUFFER_PTS = 200
@@ -101,12 +102,14 @@ TREND_FILTER_HARD_BLOCK = False   # False = hanya kasih penalti, tidak paksa fla
 TREND_FILTER_PENALTY = 0.3
 
 # --- PENCEGAH OVERTRADING & CHURNING ---
-# NILAI AKTIF DI BAWAH INI UNTUK M5. Kalau mau retrain M1, pakai nilai yang
-# dikomentari di sebelahnya (candle M1 5x lebih rapat dari M5).
-MIN_HOLD_STEPS = 15           # UNTUK M1 pakai: 15  (M1: 15 step = 15 menit, setara 3 step M5 = 15 menit)
-LOSS_COOLDOWN_STEPS = 10       # UNTUK M1 pakai: 10  (10 step M1 = 10 menit, setara 2 step M5 = 10 menit)
-MAX_HOLD_LOSS_STEPS = 600     # UNTUK M1 pakai: 600 (600 step M1 = 600 menit, setara 120 step M5 = 600 menit)
+# !!! NILAI DASAR = M1 (satuan: jumlah STEP/candle, bukan menit) !!!
+# Untuk M5 nilainya dibagi 5 supaya durasi riil (menit) sama -> lihat
+# TIMEFRAME_PROFILES["5M"] di bawah.
+MIN_HOLD_STEPS = 15           # M1: 15 step = 15 menit
+LOSS_COOLDOWN_STEPS = 10       # M1: 10 step = 10 menit
+MAX_HOLD_LOSS_STEPS = 600     # M1: 600 step = 600 menit
 CHURN_PENALTY = 2.0      # base penalty, dikalikan gamma dari REWARD_COEFFS
+IDLE_PENALTY_AFTER_STEPS = 20  # M1: setelah 20 step (=20 menit) flat, mulai kena penalti idle `delta` (dulu hardcode 20 di trading_env.py)
 
 WEEKEND_START_DAY = 5
 WEEKEND_START_HOUR = 4
@@ -120,6 +123,13 @@ WEEKEND_END_HOUR = 5
 ENABLE_DAILY_LOSS_BREAKER = True
 DAILY_LOSS_LIMIT_PCT = 0.05      # auto-stop kalau rugi harian >= 5% saldo awal hari ini
 DAILY_LOSS_LIMIT_USD = None      # isi angka $ tetap kalau mau override % (mis. 50.0), None = pakai % saja
+# False = rugi harian dihitung dari selisih BALANCE AKUN (semua bot di akun yang
+#         sama ikut terhitung -> kalau 2 bot jalan di akun yg sama, rugi bot A bisa
+#         memicu breaker bot B).
+# True  = rugi harian dihitung HANYA dari trade closed milik bot ini (dari
+#         trade_details di DB-nya sendiri). WAJIB True kalau M1 & M5 jalan
+#         bersamaan di akun yang sama.
+DAILY_BREAKER_PER_BOT = False
 
 # --- CIRCUIT BREAKER SL BERUNTUN (deteksi cepat regime choppy) ---
 # Hitungan KUMULATIF, bukan harus berturut-turut: SL-di-breakeven (net_profit
@@ -154,7 +164,7 @@ SPREAD_COST_RATE = 0.0001
 # langsung supaya kita bisa lihat di titik berapa edge-nya mulai goyah.
 SLIPPAGE_PTS = 20.0
 
-EPISODE_LENGTH = 6000    # UNTUK M1 pakai: 6000 (6000 menit, setara 1500 step M5 x5 menit = 7500 menit; kurang lebih sepadan)
+EPISODE_LENGTH = 6000    # M1: 6000 step = 6000 menit (~4,2 hari)
 INCLUDE_POSITION_IN_STATE = True
 
 MARGIN_CALL_DRAWDOWN = 0.99
@@ -193,3 +203,75 @@ PPO_KW = dict(
 
 def reward_coeffs_for(tf):
     return REWARD_COEFFS_BY_TIMEFRAME.get(tf, DEFAULT_REWARD_COEFFS)
+
+
+# =====================================================================
+# PROFIL PER-TIMEFRAME
+# ---------------------------------------------------------------------
+# Semua nilai di atas adalah nilai DASAR = M1 (yang sedang live).
+# Profil di bawah hanya menimpa nilai yang memang bergantung timeframe.
+# Dipilih otomatis oleh main.py lewat apply_timeframe_profile(args.timeframe)
+# SEBELUM training / backtest / live dimulai -> training, backtest, dan live
+# untuk timeframe yang sama SELALU memakai angka yang sama.
+#
+# Profil "1M" sengaja kosong = tidak mengubah apa pun dari nilai dasar,
+# jadi bot M1 yang sedang berjalan perilakunya tetap identik.
+# =====================================================================
+TIMEFRAME_PROFILES = {
+    "1M": {},
+    "5M": {
+        # --- satuan STEP: nilai M1 / 5 supaya durasi riil (menit) SAMA ---
+        "EPISODE_LENGTH": 1200,            # 1200 step x 5 mnt = 6000 mnt (sama dgn M1)
+        "MIN_HOLD_STEPS": 3,               # 3 x 5 mnt  = 15 mnt
+        "LOSS_COOLDOWN_STEPS": 2,          # 2 x 5 mnt  = 10 mnt
+        "MAX_HOLD_LOSS_STEPS": 120,        # 120 x 5 mnt = 600 mnt
+        "IDLE_PENALTY_AFTER_STEPS": 4,     # 4 x 5 mnt  = 20 mnt
+
+        # --- SL/TP (point; POINT=0.001 -> 1000 pts = $1) ---
+        # Angka di bawah = angka yang tercatat sbg hasil validasi ATR M5 di
+        # komentar config lama (p25 raw_SL 33 pip, p90 140 pip, TP:SL 2:1).
+        # WAJIB dicek ulang pada data 5M TERBARU sebelum training:
+        #     python check_market_params.py --symbol XAUUSDm --timeframe 5M
+        # lalu salin angka "SARAN" dari output-nya ke 3 baris ini.
+        "MIN_SL_PTS": 7600,                # $3.3
+        "MAX_SL_PTS": 14300,               # $14
+        "MIN_TP_PTS": 15200,                # $6.6
+
+        # --- training: bar M5 5x lebih sedikit per satuan waktu ---
+        "TOTAL_TIMESTEPS": 3_000_000,
+
+        # --- breaker harian dihitung per-bot (aman jalan bareng bot M1) ---
+        "DAILY_BREAKER_PER_BOT": True,
+    },
+}
+
+
+# Snapshot nilai DASAR (M1) untuk semua key yang pernah ditimpa profil manapun.
+# Diambil saat import, sebelum profil apa pun diterapkan. Dipakai untuk
+# memulihkan nilai dasar sebelum menerapkan profil baru, supaya pindah
+# profil (mis. 5M lalu 1M dalam satu proses) tidak meninggalkan sisa nilai.
+_PROFILE_KEYS = {k for _p in TIMEFRAME_PROFILES.values() for k in _p}
+_BASE_VALUES = {k: globals()[k] for k in _PROFILE_KEYS}
+
+
+def apply_timeframe_profile(timeframe: str) -> dict:
+    """Timpa nilai config global sesuai profil timeframe.
+    Selalu mulai dari nilai dasar (M1) lalu timpa dengan profil -> aman
+    dipanggil berkali-kali / berpindah profil. Mengembalikan dict nilai
+    AKTIF yang relevan (untuk dicetak di log)."""
+    tf = str(timeframe).upper()
+    if tf not in TIMEFRAME_PROFILES:
+        raise ValueError(
+            f"Timeframe '{tf}' belum punya profil di config.TIMEFRAME_PROFILES "
+            f"(tersedia: {list(TIMEFRAME_PROFILES)}). Tambahkan profilnya dulu."
+        )
+    g = globals()
+    for k, v in _BASE_VALUES.items():
+        g[k] = v
+    for k, v in TIMEFRAME_PROFILES[tf].items():
+        g[k] = v
+    g["DEFAULT_TIMEFRAME"] = tf
+    keys = ["EPISODE_LENGTH", "MIN_HOLD_STEPS", "LOSS_COOLDOWN_STEPS", "MAX_HOLD_LOSS_STEPS",
+            "IDLE_PENALTY_AFTER_STEPS", "MIN_SL_PTS", "MAX_SL_PTS", "MIN_TP_PTS",
+            "TOTAL_TIMESTEPS", "DAILY_BREAKER_PER_BOT", "SLIPPAGE_PTS"]
+    return {k: g[k] for k in keys}
