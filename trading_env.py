@@ -247,7 +247,7 @@ class GoldTradingEnv(gym.Env):
 
             transacted_size = new_size_oz if target_position != 0.0 else self.current_size_oz
             commission = trade_value * config.COMMISSION_RATE
-            spread_cost = transacted_size * self.spreads[self.t]
+            spread_cost = transacted_size * self.spreads[self.t] * getattr(config, 'SPREAD_COST_FRACTION', 1.0)
             # PERBAIKAN: slippage dihitung PER-OZ (offset harga kecil x ukuran posisi),
             # SAMA seperti spread_cost -- BUKAN persentase dari trade_value (notional).
             # Formula lama (trade_value * SLIPPAGE_COEFF) memakai notional penuh sebagai

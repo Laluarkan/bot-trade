@@ -116,6 +116,38 @@ WEEKEND_START_HOUR = 4
 WEEKEND_END_DAY = 0
 WEEKEND_END_HOUR = 5
 
+# --- HARGA YANG DIPAKAI SIMULATOR UNTUK EKSEKUSI / P&L / SL-TP ---
+# "kalman" = close yang sudah dihaluskan Kalman (perilaku lama, yang dipakai saat
+#            model-model sebelumnya dilatih dan di-backtest).
+# "raw"    = close asli dari broker. Fitur observasi model TETAP pakai Kalman, jadi
+#            model yang sudah ada menerima input yang sama persis -- yang berubah
+#            hanya harga tempat entry/exit/SL/TP/P&L dihitung.
+# Data live 2 minggu menunjukkan harga Kalman menyimpang rata-rata $0.30 dari harga
+# pasar riil (dan sistematis tertinggal -$0.18), sedangkan edge backtest per trade
+# cuma ~$0.07-0.2. Pakai "raw" untuk menguji apakah profit backtest bertahan.
+EXECUTION_PRICE_SOURCE = "raw"
+
+# --- BERAPA BAGIAN SPREAD YANG DITAGIH SIMULATOR PADA TIAP TRANSAKSI ---
+# Simulator menagih biaya spread pada SETIAP perubahan posisi (buka DAN tutup).
+# Dengan 1.0, satu round trip kena 2x spread penuh -- padahal harga yang dipakai
+# adalah harga BID: long hanya membayar spread saat masuk (beli di ask), short
+# hanya saat menutup (beli balik di ask). Realitanya 1x spread per round trip.
+# 1.0 = perilaku lama (semua backtest/training sebelumnya, ~2x terlalu mahal).
+# 0.5 = realistis (total 1x spread per round trip).
+# MODE JUJUR untuk uji edge: EXECUTION_PRICE_SOURCE = "raw" DAN SPREAD_COST_FRACTION = 0.5
+SPREAD_COST_FRACTION = 0.5
+
+# --- KILL SWITCH DRAWDOWN (pelengkap breaker harian) ---
+# Breaker harian hanya membatasi rugi PER HARI: bot yang rugi terus tiap hari tetap
+# kehilangan ~5% per hari sampai habis (data Okt 2026: breaker kena 10 dari 10 hari
+# trading, saldo -36%). Kill switch ini menghentikan bot (bot_control = PAUSED,
+# harus di-START manual setelah ditinjau) kalau saldo turun >= batas dari PUNCAK
+# saldo yang tercatat di tabel daily_profit DB bot ini.
+# Untuk memulai ulang setelah evaluasi: pakai DB baru, atau kosongkan tabel
+# daily_profit supaya puncak dihitung ulang dari saldo sekarang.
+ENABLE_KILL_SWITCH = True
+KILL_SWITCH_DRAWDOWN_PCT = 0.15
+
 # --- CIRCUIT BREAKER HARIAN (backstop utama, peduli $ apa pun mekanismenya) ---
 # Rugi harian tembus batas -> bot_control TIDAK diubah (tetap milik tombol
 # manual), tapi risk_state.daily_breaker_date diisi tanggal hari ini ->
@@ -233,9 +265,9 @@ TIMEFRAME_PROFILES = {
         # WAJIB dicek ulang pada data 5M TERBARU sebelum training:
         #     python check_market_params.py --symbol XAUUSDm --timeframe 5M
         # lalu salin angka "SARAN" dari output-nya ke 3 baris ini.
-        "MIN_SL_PTS": 7600,                # $3.3
-        "MAX_SL_PTS": 14300,               # $14
-        "MIN_TP_PTS": 15200,                # $6.6
+        "MIN_SL_PTS": 3300,                # $3.3
+        "MAX_SL_PTS": 14000,               # $14
+        "MIN_TP_PTS": 6600,                # $6.6
 
         # --- training: bar M5 5x lebih sedikit per satuan waktu ---
         "TOTAL_TIMESTEPS": 3_000_000,

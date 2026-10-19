@@ -143,6 +143,17 @@ def get_daily_start_balance(date_str, current_bal):
         conn.commit()
         return current_bal
 
+def get_peak_balance():
+    """Saldo puncak = nilai start_balance tertinggi di tabel daily_profit DB bot ini."""
+    with sqlite3.connect(DB_FILE) as conn:
+        row = conn.cursor().execute("SELECT MAX(start_balance) FROM daily_profit").fetchone()
+        return float(row[0]) if row and row[0] is not None else 0.0
+
+def set_bot_paused():
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.cursor().execute("UPDATE bot_control SET status='PAUSED' WHERE id=1")
+        conn.commit()
+
 def get_today_closed_pnl(date_str):
     """Total net_profit trade CLOSED milik bot ini (DB-nya sendiri) pada tanggal tsb.
     Dipakai kalau config.DAILY_BREAKER_PER_BOT=True supaya rugi bot lain di akun
@@ -417,6 +428,25 @@ class LiveMT5Env(gym.Env):
 
         obs, current_price, bid, ask, server_time = self._get_obs()
         
+        # --- KILL SWITCH DRAWDOWN: dicek SEBELUM membaca bot_control, supaya begitu
+        # tembus batas, bot langsung dipaksa PAUSED (posisi terbuka ikut ditutup lewat
+        # jalur target_position=0) dan baru jalan lagi setelah di-START manual. ---
+        if getattr(config, 'ENABLE_KILL_SWITCH', False):
+            try:
+                _acc = mt5.account_info()
+                if _acc is not None:
+                    _peak = max(get_peak_balance(), _acc.balance)
+                    _dd = (_peak - _acc.balance) / _peak if _peak > 0 else 0.0
+                    if _dd >= config.KILL_SWITCH_DRAWDOWN_PCT:
+                        with sqlite3.connect(DB_FILE) as _conn:
+                            _cur = _conn.cursor().execute("SELECT status FROM bot_control WHERE id=1").fetchone()
+                        if not _cur or _cur[0] != "PAUSED":
+                            set_bot_paused()
+                            save_log("WARNING", f"KILL SWITCH TERPICU! Saldo ${_acc.balance:.2f} turun {_dd*100:.1f}% dari puncak ${_peak:.2f} "
+                                                f"(batas {config.KILL_SWITCH_DRAWDOWN_PCT*100:.0f}%). Bot di-PAUSE. Tinjau dulu sebelum START manual.")
+            except Exception:
+                pass
+
         try:
             with sqlite3.connect(DB_FILE) as conn:
                 row = conn.cursor().execute("SELECT status FROM bot_control WHERE id=1").fetchone()

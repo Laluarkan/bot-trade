@@ -202,7 +202,11 @@ def build_feature_matrix(df: pd.DataFrame, timeframe: str, use_kalman=True, kalm
     # clip akhir supaya outlier ekstrem (mis. gap besar) tidak merusak statistik VecNormalize
     features = np.clip(raw_features, -config.FEATURE_CLIP, config.FEATURE_CLIP)
 
-    close_prices = df['close_kf'].values if use_kalman else df['close'].values
+    # Harga eksekusi simulator (entry/exit/SL/TP/P&L). Fitur di atas TIDAK terpengaruh.
+    if getattr(config, 'EXECUTION_PRICE_SOURCE', 'kalman') == 'raw':
+        close_prices = df['close'].values
+    else:
+        close_prices = df['close_kf'].values if use_kalman else df['close'].values
     spreads = df['spread_price'].values
     dates = df['datetime'].values
 
