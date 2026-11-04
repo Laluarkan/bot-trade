@@ -19,7 +19,7 @@ PROXY_SYMBOL = "EURUSDm"   # PERBAIKAN: sebelumnya "EURUSDc" -- tidak cocok deng
 DEFAULT_TIMEFRAME = "1M"
 TRAIN_SPLIT = 0.7
 
-MODEL_PREFIX = "ppo_v4_relative"   # versi baru -> jangan ditimpa ke model lama
+MODEL_PREFIX = "ppo_v5_raw"   # versi baru -> jangan ditimpa ke model lama
 
 TIMEFRAME_MINUTES = {
     "1M": 1, "5M": 5, "15M": 15, "30M": 30, "1H": 60, "4H": 240,
@@ -265,9 +265,9 @@ TIMEFRAME_PROFILES = {
         # WAJIB dicek ulang pada data 5M TERBARU sebelum training:
         #     python check_market_params.py --symbol XAUUSDm --timeframe 5M
         # lalu salin angka "SARAN" dari output-nya ke 3 baris ini.
-        "MIN_SL_PTS": 3300,                # $3.3
-        "MAX_SL_PTS": 14000,               # $14
-        "MIN_TP_PTS": 6600,                # $6.6
+        "MIN_SL_PTS": 4600,                # $3.3
+        "MAX_SL_PTS": 15700,               # $14
+        "MIN_TP_PTS": 9200,                # $6.6
 
         # --- training: bar M5 5x lebih sedikit per satuan waktu ---
         "TOTAL_TIMESTEPS": 3_000_000,
@@ -305,5 +305,7 @@ def apply_timeframe_profile(timeframe: str) -> dict:
     g["DEFAULT_TIMEFRAME"] = tf
     keys = ["EPISODE_LENGTH", "MIN_HOLD_STEPS", "LOSS_COOLDOWN_STEPS", "MAX_HOLD_LOSS_STEPS",
             "IDLE_PENALTY_AFTER_STEPS", "MIN_SL_PTS", "MAX_SL_PTS", "MIN_TP_PTS",
-            "TOTAL_TIMESTEPS", "DAILY_BREAKER_PER_BOT", "SLIPPAGE_PTS"]
+            "TOTAL_TIMESTEPS", "DAILY_BREAKER_PER_BOT", "SLIPPAGE_PTS",
+            # mode simulator + nama model: dicetak supaya salah setting langsung kelihatan di log
+            "EXECUTION_PRICE_SOURCE", "SPREAD_COST_FRACTION", "MODEL_PREFIX"]
     return {k: g[k] for k in keys}
