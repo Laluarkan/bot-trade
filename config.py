@@ -43,6 +43,10 @@ POINT = 0.001
 # Aturan kasar: minimal ~5x window terpanjang (macro_ema span).
 LIVE_LOOKBACK_BARS = 3000
 
+# True = fitur live dihitung HANYA dari candle yang sudah tutup (sama seperti training).
+# False = perilaku lama (candle yang baru dibuka 1-2 tick ikut jadi observasi -> fitur melenceng).
+LIVE_USE_CLOSED_BAR_ONLY = True
+
 SMA_WINDOWS = (5, 10, 20)
 EMA_WINDOWS = (9, 21)
 RSI_WINDOW = 7
@@ -265,9 +269,9 @@ TIMEFRAME_PROFILES = {
         # WAJIB dicek ulang pada data 5M TERBARU sebelum training:
         #     python check_market_params.py --symbol XAUUSDm --timeframe 5M
         # lalu salin angka "SARAN" dari output-nya ke 3 baris ini.
-        "MIN_SL_PTS": 4600,                # $3.3
-        "MAX_SL_PTS": 15700,               # $14
-        "MIN_TP_PTS": 9200,                # $6.6
+        "MIN_SL_PTS": 4600,                # $4.6
+        "MAX_SL_PTS": 15700,               # $15.7
+        "MIN_TP_PTS": 9200,                # $9.2 (TP:SL 2:1)
 
         # --- training: bar M5 5x lebih sedikit per satuan waktu ---
         "TOTAL_TIMESTEPS": 3_000_000,

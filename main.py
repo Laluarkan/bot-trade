@@ -18,7 +18,7 @@ import MetaTrader5 as mt5
 import config
 from data_loader import load_csv, build_feature_matrix, walk_forward_splits
 from trading_env import GoldTradingEnv
-from live_env import LiveMT5Env
+from live_env import LiveMT5Env, set_bot_running
 
 DB_FILE = "bot_database.db"
 
@@ -353,7 +353,7 @@ def run_backtest(args):
     print("="*50)
 
 def run_live(args):
-    ACTIVE_SYMBOL = "XAUUSDc" if args.mode == "real" else "XAUUSDm"
+    ACTIVE_SYMBOL = args.trade_symbol or ("XAUUSDc" if args.mode == "real" else "XAUUSDm")
     
     # PERBAIKAN: Kita hapus hardcode path MT5. 
     # mt5.initialize() tanpa parameter otomatis mendeteksi MetaTrader 5 yang sedang menyala di AWS.
@@ -363,7 +363,13 @@ def run_live(args):
         print(f"    Pastikan aplikasi MetaTrader 5 di AWS sudah terbuka dan Algo Trading aktif!")
         return
         
-    mt5.symbol_select(ACTIVE_SYMBOL, True)
+    if not mt5.symbol_select(ACTIVE_SYMBOL, True):
+        print(f"[!] Simbol {ACTIVE_SYMBOL} tidak ditemukan di akun MT5 yang sedang login.")
+        print(f"    Cek nama simbol di Market Watch, lalu jalankan dengan --trade-symbol <nama_simbol>.")
+        mt5.shutdown(); return
+    acc = mt5.account_info()
+    if acc is not None:
+        print(f"[*] Akun MT5: login={acc.login} | server={acc.server} | saldo={acc.balance} {acc.currency} | simbol={ACTIVE_SYMBOL}")
     if config.PROXY_SYMBOL: mt5.symbol_select(config.PROXY_SYMBOL, True)
     
     tag = f"{config.MODEL_PREFIX}_{args.symbol}_{args.timeframe.upper()}"
@@ -384,6 +390,13 @@ def run_live(args):
         env = VecNormalize.load(str(vecnorm_path), env)
         env.training = False 
         env.norm_reward = False
+    else:
+        print(f"[!] PERINGATAN: {vecnorm_path.name} tidak ada -> observasi TIDAK dinormalisasi, hasil model tidak valid.")
+        mt5.shutdown(); return
+
+    if getattr(args, "autostart", False):
+        set_bot_running()
+        print("[*] bot_control di-set RUNNING (--autostart).")
         
     model = PPO.load(model_path, custom_objects={"learning_rate": 0.0}) 
     
@@ -436,6 +449,8 @@ def main():
     p_live.add_argument("--timeframe", type=str, default="5M") 
     p_live.add_argument("--db", type=str, default="bot_database.db", help="Nama file database SQLite untuk bot ini")
     p_live.add_argument("--magic", type=int, default=10001, help="Magic Number unik MT5 untuk bot ini")
+    p_live.add_argument("--trade-symbol", type=str, default=None, help="Simbol yang diperdagangkan di MT5 (default: XAUUSDm demo / XAUUSDc real). --symbol hanya menentukan nama model")
+    p_live.add_argument("--autostart", action="store_true", help="Langsung set bot_control=RUNNING (default: tetap PAUSED sampai START dari dashboard)")
     
     args = parser.parse_args()
 

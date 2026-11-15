@@ -154,6 +154,11 @@ def set_bot_paused():
         conn.cursor().execute("UPDATE bot_control SET status='PAUSED' WHERE id=1")
         conn.commit()
 
+def set_bot_running():
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.cursor().execute("UPDATE bot_control SET status='RUNNING' WHERE id=1")
+        conn.commit()
+
 def get_today_closed_pnl(date_str):
     """Total net_profit trade CLOSED milik bot ini (DB-nya sendiri) pada tanggal tsb.
     Dipakai kalau config.DAILY_BREAKER_PER_BOT=True supaya rugi bot lain di akun
@@ -255,6 +260,7 @@ class LiveMT5Env(gym.Env):
         self.timeframe = timeframe.upper()
         self.position = 0.0
         self.steps_in_position = 0
+        self.cooldown_steps = 0
         self.open_trade_ticket = None
         self.open_trade_db_id = None
         self.open_trade_mfe = 0.0
@@ -367,6 +373,13 @@ class LiveMT5Env(gym.Env):
         else:
             df['proxy_close'] = 0.0; df['proxy_tick_volume'] = 0.0
             
+        # Baris terakhir dari MT5 (posisi 0) adalah candle yang SEDANG BERJALAN. Saat training,
+        # fitur bar t selalu dihitung dari bar yang sudah TUTUP. Waktu server tetap diambil dari
+        # candle berjalan (dipakai proteksi weekend), tapi fitur dihitung hanya dari bar tertutup.
+        server_time_now = df['datetime'].iloc[-1]
+        if getattr(config, 'LIVE_USE_CLOSED_BAR_ONLY', True) and len(df) > 1:
+            df = df.iloc[:-1].reset_index(drop=True)
+
         features, prices, spreads, _, _, _, extra = build_feature_matrix(df, self.timeframe, use_kalman=True, kalman_model=self.kalman_model)
         current_feature = features[-1]
         obs = np.concatenate([current_feature, [self.position]]).astype(np.float32) if config.INCLUDE_POSITION_IN_STATE else current_feature
@@ -381,7 +394,7 @@ class LiveMT5Env(gym.Env):
         self.last_trend_ema = float(extra['trend_ema'][-1]) if len(extra['trend_ema']) else prices[-1]
         self.last_macro_slope = float(extra['macro_slope'][-1]) if len(extra['macro_slope']) else 0.0
 
-        return obs, prices[-1], bid, ask, df['datetime'].iloc[-1]
+        return obs, prices[-1], bid, ask, server_time_now
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -515,6 +528,30 @@ class LiveMT5Env(gym.Env):
         elif self.position != 0.0 and self.steps_in_position < config.MIN_HOLD_STEPS:
             target_position = self.position
 
+        system_override = bool(
+            bot_status == "PAUSED" or is_weekend_buffer or daily_breaker_active or streak_breaker_active or
+            (config.ENABLE_TOXIC_HOUR_FILTER and server_time.hour in config.TOXIC_HOURS)
+        )
+
+        # Paritas dengan trading_env.py: cooldown setelah close rugi, paksa close posisi rugi yang
+        # terlalu lama, dan blokir keras lawan-tren (hanya aktif jika TREND_FILTER_HARD_BLOCK=True).
+        if self.cooldown_steps > 0:
+            self.cooldown_steps -= 1
+            if self.position == 0.0:
+                target_position = 0.0
+
+        forced_close = False
+        if (self.position != 0.0 and active_bot_pos and
+                self.steps_in_position >= config.MAX_HOLD_LOSS_STEPS and active_bot_pos[0].profit < 0):
+            forced_close = True
+            target_position = 0.0
+
+        if config.ENABLE_TREND_FILTER and config.TREND_FILTER_HARD_BLOCK and target_position != 0.0:
+            if target_position > 0 and (current_price < self.last_trend_ema or self.last_macro_slope <= 0.001):
+                target_position = 0.0
+            elif target_position < 0 and (current_price > self.last_trend_ema or self.last_macro_slope >= -0.001):
+                target_position = 0.0
+
         action_str = "BUY" if target_position > 0 else "SELL" if target_position < 0 else "HOLD"
         
         acc = mt5.account_info()
@@ -527,9 +564,11 @@ class LiveMT5Env(gym.Env):
         if target_position != self.position:
             if self.position != 0.0:
                 close_bot_positions(self.symbol, self.magic)
+                loss_on_close = False
                 if self.open_trade_ticket is not None:
                     deal_info = get_close_reason_and_profit(self.open_trade_ticket)
                     if deal_info:
+                        loss_on_close = (deal_info["profit"] or 0.0) < 0
                         update_trade_close_detail(self.open_trade_db_id, deal_info["price"], f"SIGNAL_CHANGE/{deal_info['reason']}", deal_info["profit"], deal_info["commission"], deal_info["swap"], current_bal, self.open_trade_mfe, self.open_trade_mae)
                     self.open_trade_ticket = None
                     self.open_trade_db_id = None
@@ -538,6 +577,10 @@ class LiveMT5Env(gym.Env):
                     save_log("CLOSE", "Posisi ditutup oleh sistem.")
                 
                 self.position = 0.0
+
+                if loss_on_close and not forced_close and not system_override:
+                    self.cooldown_steps = config.LOSS_COOLDOWN_STEPS
+                    target_position = 0.0
 
             if target_position != 0.0:
                 active_mt5_tf = {"1M": mt5.TIMEFRAME_M1, "5M": mt5.TIMEFRAME_M5, "15M": mt5.TIMEFRAME_M15, "30M": mt5.TIMEFRAME_M30, "1H": mt5.TIMEFRAME_H1}.get(self.timeframe, mt5.TIMEFRAME_M1)
@@ -589,6 +632,7 @@ class LiveMT5Env(gym.Env):
                         self.open_trade_ticket = res.order
                         self.open_trade_db_id = save_trade_open_detail(res.order, self.symbol, action_str, lot_size, res.price, sl_price, tp_price, sl_pts, tp_pts, current_vol, current_bal, int(action), bid, ask, ask-bid, server_time.hour, server_time.dayofweek)
                         self.position = target_position
+                        self.steps_in_position = 0
                     else:
                         error_msg = res.comment if res else "Tidak ada respon broker"
                         save_log("ERROR", f"MT5 Menolak Order {action_str} | Alasan: {error_msg}")
