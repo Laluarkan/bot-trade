@@ -106,6 +106,12 @@ TREND_FILTER_HARD_BLOCK = False   # False = hanya kasih penalti, tidak paksa fla
 TREND_FILTER_PENALTY = 0.3
 
 # --- PENCEGAH OVERTRADING & CHURNING ---
+# False = agen TIDAK bisa menutup/membalik posisi yang sedang berjalan (posisi
+#         harus ditunggu selesai sampai kena TP, SL/BE, MAX_HOLD_LOSS_STEPS,
+#         atau proteksi weekend/breaker).
+# True  = perilaku lama (agen boleh cut/reverse posisi setelah MIN_HOLD_STEPS).
+ALLOW_AGENT_CLOSE = False
+
 # !!! NILAI DASAR = M1 (satuan: jumlah STEP/candle, bukan menit) !!!
 # Untuk M5 nilainya dibagi 5 supaya durasi riil (menit) sama -> lihat
 # TIMEFRAME_PROFILES["5M"] di bawah.
@@ -311,5 +317,5 @@ def apply_timeframe_profile(timeframe: str) -> dict:
             "IDLE_PENALTY_AFTER_STEPS", "MIN_SL_PTS", "MAX_SL_PTS", "MIN_TP_PTS",
             "TOTAL_TIMESTEPS", "DAILY_BREAKER_PER_BOT", "SLIPPAGE_PTS",
             # mode simulator + nama model: dicetak supaya salah setting langsung kelihatan di log
-            "EXECUTION_PRICE_SOURCE", "SPREAD_COST_FRACTION", "MODEL_PREFIX"]
+            "ALLOW_AGENT_CLOSE", "EXECUTION_PRICE_SOURCE", "SPREAD_COST_FRACTION", "MODEL_PREFIX"]
     return {k: g[k] for k in keys}

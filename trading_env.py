@@ -141,7 +141,7 @@ class GoldTradingEnv(gym.Env):
                 target_position = 0.0
 
         if self.position != 0.0 and target_position != self.position and not forced_close:
-            if self.steps_in_position < config.MIN_HOLD_STEPS:
+            if not getattr(config, 'ALLOW_AGENT_CLOSE', True) or self.steps_in_position < config.MIN_HOLD_STEPS:
                 target_position = self.position
 
         # --- Filter tren: sekarang bisa soft (penalti reward) atau hard (blokir aksi)

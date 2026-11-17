@@ -525,7 +525,7 @@ class LiveMT5Env(gym.Env):
         elif streak_breaker_active:
             target_position = 0.0
             save_log("INFO", f"Evaluasi: STREAK BREAKER aktif (cooldown sampai {risk['streak_paused_until']}).")
-        elif self.position != 0.0 and self.steps_in_position < config.MIN_HOLD_STEPS:
+        elif self.position != 0.0 and (not getattr(config, 'ALLOW_AGENT_CLOSE', True) or self.steps_in_position < config.MIN_HOLD_STEPS):
             target_position = self.position
 
         system_override = bool(
